@@ -1,3 +1,4 @@
+import { dropTransaction } from "@nomicfoundation/hardhat-toolbox/network-helpers";
 import { loadFixture, ethers, expect } from "./setup";
 
 describe("Auction", function() {
@@ -33,19 +34,45 @@ describe("Auction", function() {
 
         it("should create auction", async function(){
             const {user0, auction } = await loadFixture(deploy);
+            const startPrice = 1000000000n;
+            const duration = 1n*24n*60n*60n;
+            const item = "example";
+            const discountRate = 10n;
 
-            const tx = await auction.createAuction(1000000000n, 10n, 1n*24n*60n*60n, "ha-ha-ha");
+            const tx = await auction.createAuction(startPrice, discountRate, duration, item);
             tx.wait(1);           
-            const tx2 = await auction.createAuction(1000000000n, 10n, 1n*24n*60n*60n, "ha-ha-ha");
-            tx2.wait(1);           
-
-            const tx3 = await auction.createAuction(1000000000n, 10n, 1n*24n*60n*60n, "ha-ha-ha");
-            tx3.wait(1);           
-            //console.log("Gas used:", receipt.gasUsed.toString());
-
+            
         
         });
+
+        it("should be reverted", function(){
+
+        });
     });
+
+    describe("other fucnctions", function() {
+        it("getBalace 1", async function() {
+            const { auction } = await loadFixture(deploy);        
+            const x = await auction.getBalance();
+            console.log(x);
+            expect(x).eq(0);
+    
+        });
+
+        it("getBalace 1", async function() {
+            const { auction } = await loadFixture(deploy);        
+            const x = await auction.getBalance2();
+            console.log(x);
+            expect(x).eq(0);
+    
+        });
+    
+             
+
+    });
+
+
+
 
    /* describe("correct transfers", function(){
         
