@@ -30,7 +30,8 @@ const config: HardhatUserConfig = {
     apiKey: process.env.ETHERSCAN_API_KEY || "",
   },
   gasReporter: {
-    enabled: process.env.REPORT_GAS === "true",
+    //enabled: process.env.REPORT_GAS === "true",
+    enabled: true,
     currency: "ETH", 
   },
 };

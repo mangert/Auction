@@ -11,7 +11,7 @@ contract Auction {
     event NewAuctionCreated(uint256 indexed index, string description, uint32 startPrice, uint32 duration);
     event AuctionEnded(uint256 indexed index, uint32 finalPrice,address indexed buyer);
     
-    event MonetTrasferFailed(uint256 indexed index, address indexed recipient, uint256 amount, bytes reason);    
+    event MoneyTrasferFailed(uint256 indexed index, address indexed recipient, uint256 amount, bytes reason);    
     
     uint32 private constant DURATION = 2 days;
     uint32 private immutable fee = 10;
@@ -65,6 +65,7 @@ contract Auction {
 
     function buy(uint256 index) external payable {
         
+        require(index <= getCount(), "Non Existent lot"); 
         Lot memory lot = auctions[index];
         
         require(!lot.stopped, RequestToStoppedAuction(index));
@@ -81,14 +82,14 @@ contract Auction {
             (bool success, ) = payable(msg.sender).call{value: refund}("");
             if(!success) {
                 pendingWithdrawals[msg.sender]+=refund;
-                emit MonetTrasferFailed(index, msg.sender, refund, "refund failed");    
+                emit MoneyTrasferFailed(index, msg.sender, refund, "refund failed");    
             }
         }
         uint32 amount = currentPrice - ((currentPrice * fee) / 100);
         (bool success, ) = lot.seller.call{value: amount}("");
         if(!success){
             pendingWithdrawals[lot.seller]+=refund;
-            emit MonetTrasferFailed(index, lot.seller, refund, "incom transfer failed");
+            emit MoneyTrasferFailed(index, lot.seller, refund, "incom transfer failed");
         }
 
         emit AuctionEnded(index, currentPrice, msg.sender);
@@ -101,11 +102,15 @@ contract Auction {
         pendingWithdrawals[msg.sender] = 0;
 
         (bool success, ) = msg.sender.call{value: amount}("");
-        require(success, "Withdraw failed"); //TO - кастомную ошибку сделать
+        require(success, "Withdraw failed");
     }
 
-    function withdrawIncomes(uint32 amount) external { //todo
+    function withdrawIncomes(uint32 amount) external {
+        require(msg.sender == owner, "Not an owner");
+        require(amount <= getBalance(), "Not enough funds");
         
+        (bool success, ) = msg.sender.call{value: amount}("");
+        require(success, "Withdraw failed");        
         
     }
 
@@ -113,11 +118,18 @@ contract Auction {
         balance = address(this).balance;        
     }
 
-     function getBalance2() public view returns(uint256) {
+    function getBalance2() public view returns(uint256) { //убрать?
         return address(this).balance;        
     }
 
+    function getCount() public view returns(uint256) {
+        return auctions.length;
+    }
 
+    function getLot(uint256 index) external view returns(Lot memory) {
+        require(index <= getCount(), "Non Existent lot"); 
+        return auctions[index];
+    }
         
 }
 

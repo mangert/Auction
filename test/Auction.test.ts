@@ -30,7 +30,7 @@ describe("Auction", function() {
 
     });
 
-    describe("sellers funtions", function() {
+    describe("create funtion tests", function() {
 
         it("should create auction", async function(){
             const {user0, auction } = await loadFixture(deploy);
@@ -40,41 +40,88 @@ describe("Auction", function() {
             const discountRate = 10n;
 
             const tx = await auction.createAuction(startPrice, discountRate, duration, item);
-            tx.wait(1);           
+            tx.wait(1);
             
+            const countAucitons = await auction.getCount();
+            expect(countAucitons).eq(1);
+           
+            const createdAuction = await auction.auctions(0);
+            expect(createdAuction.seller).eq(user0.address);
+            expect(createdAuction.startPrice).eq(startPrice);
+            expect(createdAuction.stopped).eq(false);
+            await expect(tx).to.emit(auction, "NewAuctionCreated").withArgs(0, item, startPrice, duration);
+
         
         });
 
-        it("should be reverted", function(){
+        it("should be reverted creating with low start price", async function(){
+            
+            const {user0, auction } = await loadFixture(deploy);
+            const startPrice = 100n;
+            const duration = 1n*24n*60n*60n;
+            const item = "example";
+            const discountRate = 10n;
+
+            await expect(auction.createAuction(startPrice, discountRate, duration, item))
+                    .revertedWithCustomError(auction, "InvalidStartPrice")
+                    .withArgs(startPrice, discountRate * duration);
 
         });
     });
 
-    describe("other fucnctions", function() {
-        it("getBalace 1", async function() {
-            const { auction } = await loadFixture(deploy);        
-            const x = await auction.getBalance();
-            console.log(x);
-            expect(x).eq(0);
-    
+    describe("Buy and get fucnctions", function() {
+        
+        it("should get auction info", async function(){
+            
+            const {user0, auction } = await loadFixture(deploy);
+            
+            const startPrice = 1000000000n;
+            const duration = 1n*24n*60n*60n;
+            const item = "example";
+            const discountRate = 10n;
+
+            for(let i = 0n; i != 4n; ++i) {
+                
+                const tx = await auction.createAuction(startPrice + i, discountRate, duration, item + i);
+                tx.wait(1);
+            }
+
+            const lot = await auction.getLot(3);
+
+            expect(lot.description).eq(item + "3");
+
+        
         });
 
-        it("getBalace 1", async function() {
-            const { auction } = await loadFixture(deploy);        
-            const x = await auction.getBalance2();
-            console.log(x);
-            expect(x).eq(0);
-    
+        it("should be reverted request non-existent lot", async function(){
+            
+            const {user0, auction } = await loadFixture(deploy);
+            
+            const startPrice = 1000000000n;
+            const duration = 1n*24n*60n*60n;
+            const item = "example";
+            const discountRate = 10n;
+
+            for(let i = 0n; i != 4n; ++i) {
+                
+                const tx = await auction.createAuction(startPrice + i, discountRate, duration, item + i);
+                tx.wait(1);
+            }
+
+            await expect(auction.getLot(5)).revertedWith("Non Existent lot");
         });
+
+    });
+
+    describe("withdraw funcitons", function() {        
     
-             
 
     });
 
 
 
 
-   /* describe("correct transfers", function(){
+   /* describe("correct transfers", function(){   1 260 474   1 197 552  1 231 580
         
         it("should possible transfer", async function() {
         
@@ -321,5 +368,5 @@ describe("Auction", function() {
                 .to.be.revertedWithCustomError(ERC20_Token, "ERC20InvalidSpender").withArgs(ZERO_ADDRESS);        
         });
     });*/   
+    
 });
-
