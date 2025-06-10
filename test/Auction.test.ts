@@ -1,5 +1,6 @@
 import { dropTransaction } from "@nomicfoundation/hardhat-toolbox/network-helpers";
 import { loadFixture, ethers, expect } from "./setup";
+import { network } from "hardhat";
 
 describe("Auction", function() {
     async function deploy() {        
@@ -88,7 +89,7 @@ describe("Auction", function() {
 
             const lot = await auction.getLot(3);
 
-            expect(lot.description).eq(item + "3");
+            expect(lot.description).eq(item + "3");           
 
         
         });
@@ -109,6 +110,43 @@ describe("Auction", function() {
             }
 
             await expect(auction.getLot(5)).revertedWith("Non Existent lot");
+        });
+        
+        it("should buy lot", async function(){ //проверка функции buy
+            const {user0, user1, user2, auction } = await loadFixture(deploy);
+            
+            const startPrice = 1000000000n;
+            const duration = 1n*24n*60n*60n;
+            const item = "example";
+            const discountRate = 10n;
+
+            for(let i = 0n; i != 4n; ++i) { //сначала создадим 4 лота
+                
+                const tx = await auction.connect(user1).createAuction(startPrice + i, discountRate, duration, item + i);
+                tx.wait(1);
+                console.log("итерация ", i, " цена", (await auction.getLot(i)).startPrice);
+            }
+            await network.provider.send("evm_increaseTime", [12 * 60 * 60]);
+            await network.provider.send("evm_mine");
+
+            //теперь попробуем купить
+            const index = 3n; //попробуем купить третий лот
+            const price = await auction.getPrice(index);
+            
+            console.log("Обновление лота ", index, " цена", (await auction.getPrice(index)));           
+            
+            const buyTx = await auction.connect(user2).buy(index, {value: price});
+            buyTx.wait(1);
+
+            await expect(buyTx).to.emit(auction, "AuctionEnded").withArgs(index, price, user2);            
+
+            const lot3 = await auction.getLot(index);
+            console.log("цена ", lot3.finalPrice, " статус ", lot3.stopped);
+
+
+
+
+        
         });
 
     });

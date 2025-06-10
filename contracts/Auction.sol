@@ -9,7 +9,7 @@ contract Auction {
     error InfucientFunds(uint256 index, uint256 value, uint256 price);    
     
     event NewAuctionCreated(uint256 indexed index, string description, uint32 startPrice, uint32 duration);
-    event AuctionEnded(uint256 indexed index, uint32 finalPrice,address indexed buyer);
+    event AuctionEnded(uint256 indexed index, uint64 finalPrice,address indexed buyer);
     
     event MoneyTrasferFailed(uint256 indexed index, address indexed recipient, uint256 amount, bytes reason);    
     
@@ -19,9 +19,9 @@ contract Auction {
     
     struct  Lot {
         address payable seller;        
-        uint32 startPrice;
-        uint32 finalPrice;
-        uint32 discountRate;
+        uint64 startPrice;
+        uint64 finalPrice;
+        uint64 discountRate;
         uint32 startTime;
         uint32 endTime;        
         string description;
@@ -34,7 +34,7 @@ contract Auction {
         owner = msg.sender;        
     }
 
-    function createAuction(uint32 _startPrice, uint32 _discountRate, uint32 _duration, string calldata _description) external
+    function createAuction(uint32 _startPrice, uint64 _discountRate, uint32 _duration, string calldata _description) external
     {
         uint32 duration = _duration == 0 ? DURATION : _duration;        
         require(_startPrice >= _discountRate * duration, InvalidStartPrice(_startPrice, _discountRate * duration));
@@ -54,48 +54,55 @@ contract Auction {
         emit NewAuctionCreated(auctions.length - 1, _description, _startPrice, duration);        
     }
 
-    function getPrice(uint256 index) public view returns(uint32) {
+    function getPrice(uint256 index) public view returns(uint64) {
         Lot memory currentAuction = auctions[index];
         require(currentAuction.stopped != true, RequestToStoppedAuction(index));
         uint32 elapsedTime = uint32(block.timestamp - currentAuction.startTime);
-        uint32 discount = currentAuction.discountRate * elapsedTime;
+        uint64 discount = currentAuction.discountRate * elapsedTime;
         
         return (currentAuction.startPrice - discount);        
     }
 
-    function buy(uint256 index) external payable {
+    function buy(uint256 index) external payable { //функция для покупки лота
         
-        require(index <= getCount(), "Non Existent lot"); 
-        Lot memory lot = auctions[index];
+        require(index <= getCount(), "Non Existent lot"); //проверка на наличие лотаё
         
-        require(!lot.stopped, RequestToStoppedAuction(index));
-        require(block.timestamp < lot.endTime, ExpiredTime(index));
-        uint32 currentPrice = getPrice(index);
+        Lot memory lot = auctions[index]; //здесь делаем копию из storage, в оптимизированном варианте будет ссылка
         
-        require(msg.value >= currentPrice, InfucientFunds(index, msg.value, currentPrice));
+        require(!lot.stopped, RequestToStoppedAuction(index)); //проверяем, что аукцион по этом лоту не завершен
+        require(block.timestamp < lot.endTime, ExpiredTime(index)); //проверяем, что время не истекло
         
-        lot.stopped = true;
-        lot.finalPrice = currentPrice;
+        //начинаем собственно покупку
+        uint64 currentPrice = getPrice(index); //считаем текущую цену
+        require(msg.value >= currentPrice, InfucientFunds(index, msg.value, currentPrice)); //проверяем, что заплатили достаточно
         
-        uint256 refund = msg.value - currentPrice;
-        if(refund > 0) {
+        lot.stopped = true; //завершаем аукцион
+        lot.finalPrice = currentPrice; //записываем цену в данные лота
+        
+        uint256 refund = msg.value - currentPrice; //считаем излишки
+        
+        if(refund > 0) { //возвращаем излишки
             (bool success, ) = payable(msg.sender).call{value: refund}("");
             if(!success) {
                 pendingWithdrawals[msg.sender]+=refund;
                 emit MoneyTrasferFailed(index, msg.sender, refund, "refund failed");    
             }
         }
-        uint32 amount = currentPrice - ((currentPrice * fee) / 100);
-        (bool success, ) = lot.seller.call{value: amount}("");
+        
+        uint64 amount = currentPrice - ((currentPrice * fee) / 100); //считаем сумму для продавца (комиссию оставляем себе)
+        (bool success, ) = lot.seller.call{value: amount}(""); //отправляем деньги продавцу
         if(!success){
             pendingWithdrawals[lot.seller]+=refund;
             emit MoneyTrasferFailed(index, lot.seller, refund, "incom transfer failed");
         }
 
-        emit AuctionEnded(index, currentPrice, msg.sender);
+        auctions[index] = lot; //копируем модифицированные данные лота обратно в storage - в оптимизированном варианте этой строки не будет 
+
+        emit AuctionEnded(index, currentPrice, msg.sender); 
     }
 
-    function withdrawPending() external {
+    function withdrawPending() external { //функция для ручного вывода "зависших" средств пользователей
+        
         uint256 amount = pendingWithdrawals[msg.sender];
         require(amount > 0, InfucientFunds(0, 0, 0));
 
@@ -105,7 +112,7 @@ contract Auction {
         require(success, "Withdraw failed");
     }
 
-    function withdrawIncomes(uint32 amount) external {
+    function withdrawIncomes(uint64 amount) external {
         require(msg.sender == owner, "Not an owner");
         require(amount <= getBalance(), "Not enough funds");
         
