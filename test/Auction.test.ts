@@ -1,6 +1,7 @@
 import { dropTransaction } from "@nomicfoundation/hardhat-toolbox/network-helpers";
 import { loadFixture, ethers, expect } from "./setup";
 import { network } from "hardhat";
+import { time } from "@nomicfoundation/hardhat-network-helpers";
 
 describe("Auction", function() {
     async function deploy() {        
@@ -126,26 +127,31 @@ describe("Auction", function() {
                 tx.wait(1);
                 console.log("итерация ", i, " цена", (await auction.getLot(i)).startPrice);
             }
-            await network.provider.send("evm_increaseTime", [12 * 60 * 60]);
+            
+            const now = (await ethers.provider.getBlock("latest"))!.timestamp;
+            const timeToAdd = 12 * 60 * 60; // 12 часов
+            const futureTime = now + timeToAdd;
+
+            await network.provider.send("evm_setNextBlockTimestamp", [futureTime]);
             await network.provider.send("evm_mine");
 
             //теперь попробуем купить
             const index = 3n; //попробуем купить третий лот
-            const price = await auction.getPrice(index);
+            const price = await auction.getPrice(index);  //получаем цену лота                     
+
+            const buyTx = await auction.connect(user2).buy(index, {value: price}); //покупаем
             
-            console.log("Обновление лота ", index, " цена", (await auction.getPrice(index)));           
+            const lot3 = await auction.getLot(index); //получаем данные купленного лота            
+            const finalPrice = lot3.finalPrice;
+
+            //тестируем событие
+            await expect(buyTx).to.emit(auction, "AuctionEnded").withArgs(index, finalPrice, user2);            
             
-            const buyTx = await auction.connect(user2).buy(index, {value: price});
-            buyTx.wait(1);
+            //проверяем балансы
+            const sellerIncome = finalPrice - ((finalPrice * 10n) / 100n);
+            const auctionIncome = (finalPrice * 10n) / 100n;            
 
-            await expect(buyTx).to.emit(auction, "AuctionEnded").withArgs(index, price, user2);            
-
-            const lot3 = await auction.getLot(index);
-            console.log("цена ", lot3.finalPrice, " статус ", lot3.stopped);
-
-
-
-
+            await expect(buyTx).to.changeEtherBalances([user1, user2, auction.target],[sellerIncome, -finalPrice, auctionIncome]);
         
         });
 
