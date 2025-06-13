@@ -2,10 +2,63 @@
 pragma solidity ^0.8.29;
 
 /**
- * @title Auction  
- * @notice Контракт, позволяющий размещать и покупать лоты на аукционе (неоптимизированная версия)
+ * @title AuctionOpt  
+ * @notice Контракт, позволяющий размещать и покупать лоты на аукционе (оптимизированная версия)
  */
-contract Auction {    
+contract AuctionOpt {
+
+    //Описание кастомных ошибок
+    /**
+     * @notice Ошибка указывает неверную цену при размещении лота
+     * @param startPrice - заданное начальное значение цены
+     * @param minPriceLimit - минимальный порог начальной цены
+     */
+    error InvalidStartPrice(uint64 startPrice, uint64 minPriceLimit);
+
+    /**
+     * @notice Ошибка указывает на обращение к несуществующему лота
+     * @param index - запрашиваемый id лота     
+     */
+    error NonExistentLot(uint256 index);
+    
+    /**
+     * @notice Ошибка указывает на обращение к завершенному аукциону
+     * @param index - идентификатор лота     
+     */
+    error RequestToStoppedAuction(uint256 index);
+    
+    /**
+     * @notice Ошибка указывает на истечение времени аукциона по лоту
+     * @param index - идентификатор лота     
+     */
+    error ExpiredTime(uint256 index);
+    
+    /**
+     * @notice Ошибка указывает, что перечисленных средств не хватает для приобренения лота
+     * @param index - идентификатор лота     
+     * @param value - сумма платеж
+     * @param price - стоимость лота
+     */
+    error InfucientFunds(uint256 index, uint256 value, uint256 price);    
+
+    /**
+     * @notice Ошибка указывает на неуспешный трансфер в адрес пользователя
+     * @param recipient - адрес получателя
+     * @param amount - сумма платежа     
+     */
+    error TransferFailed(address recipient, uint256 amount);
+
+    /**      
+     * @notice Ошибка указывает на недостаток средств для вывода
+     * @param amount - запрашиваемая сумма платежа     
+     */
+    error NotEnoughFunds(uint256 amount);
+
+    /**
+     * @notice Ошибка указывает, что средства с контракта пытается вывести не владелец
+     * @param recipient - адрес, запросивший вывод      
+     */
+    error NotAnOwner(address recipient);
     
     //описание событий
     /**
@@ -21,6 +74,8 @@ contract Auction {
      * @notice перечисление средств завершщилось неудачей
      */
     event MoneyTrasferFailed(uint256 indexed index, address indexed recipient, uint256 amount, bytes reason);    
+
+    
     
     uint32 private constant DURATION = 2 days; //значение длительности "по умолчанию"
     uint32 private immutable fee = 10; //комиссия организатора
@@ -56,7 +111,7 @@ contract Auction {
         uint32 duration = _duration == 0 ? DURATION : _duration; //если длительность не задана, берем параметр по умолчанию       
         
         //начальная цена должна быть такой, чтобы не уйти в минус за время аукциона
-        require(_startPrice >= _discountRate * duration, "Uncorrect start price");
+        require(_startPrice >= _discountRate * duration, InvalidStartPrice(_startPrice, _discountRate * duration));
 
         Lot memory newLot = Lot({ //заполняем данные лота
             seller: payable (msg.sender),
@@ -80,7 +135,7 @@ contract Auction {
      */
     function getPrice(uint256 index) public view returns(uint64) {
         Lot memory currentAuction = auctions[index];
-        require(currentAuction.stopped != true, "Auction stopped");
+        require(currentAuction.stopped != true, RequestToStoppedAuction(index));
         uint32 elapsedTime = uint32(block.timestamp - currentAuction.startTime);
         uint64 discount = currentAuction.discountRate * elapsedTime;
         
@@ -93,16 +148,16 @@ contract Auction {
      */
     function buy(uint256 index) external payable {
         
-        require(index <= getCount(), "Non Existent lot"); //проверка на наличие лота
+        require(index <= getCount(), NonExistentLot(index)); //проверка на наличие лота
         
         Lot memory lot = auctions[index]; //здесь делаем копию из storage, в оптимизированном варианте будет ссылка
         
-        require(!lot.stopped, "Auction stopped"); //проверяем, что аукцион по этом лоту не завершен
-        require(block.timestamp < lot.endTime, "Time expired"); //проверяем, что время не истекло
+        require(!lot.stopped, RequestToStoppedAuction(index)); //проверяем, что аукцион по этом лоту не завершен
+        require(block.timestamp < lot.endTime, ExpiredTime(index)); //проверяем, что время не истекло
         
         //начинаем собственно покупку
         uint64 currentPrice = getPrice(index); //считаем текущую цену
-        require(msg.value >= currentPrice, "Not enough funds"); //проверяем, что заплатили достаточно
+        require(msg.value >= currentPrice, InfucientFunds(index, msg.value, currentPrice)); //проверяем, что заплатили достаточно
         
         lot.stopped = true; //завершаем аукцион
         lot.finalPrice = currentPrice; //записываем цену в данные лота
@@ -135,12 +190,12 @@ contract Auction {
     function withdrawPending() external {
         
         uint256 amount = pendingWithdrawals[msg.sender]; //смотрим, сколько у пользователя "зависло" средств
-        require(amount > 0, "Zero withdraw"); //проверка, что невыведенные средства больше нуля
+        require(amount > 0, InfucientFunds(0, 0, 0)); //проверка, что невыведенные средства больше нуля
 
         pendingWithdrawals[msg.sender] = 0; //обнуляем баланс
 
         (bool success, ) = msg.sender.call{value: amount}("");
-        require(success, "Withdraw failed");
+        require(success, TransferFailed(msg.sender, amount));
     }
 
     /**
@@ -148,11 +203,11 @@ contract Auction {
      * @param amount - сумма вывода
      */
     function withdrawIncomes(uint64 amount) external {
-        require(msg.sender == owner, "Not an owner"); //проверяем, что выводит владелец контракта
-        require(amount <= getBalance(), "Not enough funds"); //проверяем, что нужная сумма есть на балансе
+        require(msg.sender == owner, NotAnOwner(msg.sender)); //проверяем, что выводит владелец контракта
+        require(amount <= getBalance(), NotEnoughFunds(amount)); //проверяем, что нужная сумма есть на балансе
         
         (bool success, ) = msg.sender.call{value: amount}("");
-        require(success, "Withdraw failed");        
+        require(success, TransferFailed(msg.sender, amount));        
         
     }
     //геттеры
@@ -175,8 +230,7 @@ contract Auction {
      * @param index - идентифиактор лота
      */
     function getLot(uint256 index) external view returns(Lot memory) {
-        require(index <= getCount(), "Non Existent lot"); 
+        require(index <= getCount(), NonExistentLot(index)); 
         return auctions[index];
     }        
 }
-

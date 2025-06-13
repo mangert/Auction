@@ -3,11 +3,11 @@ import { loadFixture, ethers, expect } from "./setup";
 import { network } from "hardhat";
 import { time } from "@nomicfoundation/hardhat-network-helpers";
 
-describe("Auction", function() {
+describe("AuctionOpt", function() {
     async function deploy() {        
         const [user0, user1, user2] = await ethers.getSigners();
         
-        const auction_Factory = await ethers.getContractFactory("Auction");
+        const auction_Factory = await ethers.getContractFactory("AuctionOpt");
         const auction = await auction_Factory.deploy();
         await auction.waitForDeployment();        
 
@@ -65,7 +65,8 @@ describe("Auction", function() {
             const discountRate = 10n;
 
             await expect(auction.createAuction(startPrice, discountRate, duration, item))
-                    .revertedWith("Uncorrect start price");                    
+                    .revertedWithCustomError(auction, "InvalidStartPrice")
+                    .withArgs(startPrice, discountRate * duration);
 
         });
     });
@@ -109,7 +110,7 @@ describe("Auction", function() {
                 tx.wait(1);
             }
 
-            await expect(auction.getLot(5)).revertedWith("Non Existent lot");
+            await expect(auction.getLot(5)).revertedWithCustomError(auction, "NonExistentLot").withArgs(5);
         });
         
         it("should buy lot", async function(){ //проверка функции buy
@@ -152,7 +153,6 @@ describe("Auction", function() {
             await expect(buyTx).to.changeEtherBalances([user1, user2, auction.target],[sellerIncome, -finalPrice, auctionIncome]);
         
         });
-
         it("should revert buy with not enough funds", async function(){ //проверка возврата функции buy из-аз недостаточности средств
             const {user0, user1, user2, auction } = await loadFixture(deploy);
             
@@ -177,10 +177,14 @@ describe("Auction", function() {
 
             //теперь попробуем купить
             const index = 3n; //попробуем купить третий лот
-            const price = await auction.getPrice(index) / 2n;  //получаем цену лота                     
+            const price = await auction.getPrice(index);  //получаем цену лота                     
+            const priceUser = price / 2n;  //а перечислим в два раза меньше
             
-            await expect(auction.connect(user2).buy(index, {value: price})).revertedWith("Not enough funds");
+            await expect(auction.connect(user2).buy(index, {value: priceUser}))
+                .revertedWithCustomError(auction, "InfucientFunds")
+                .withArgs(index, priceUser, price - (await auction.getLot(index)).discountRate);
         });
+
 
     });
 
@@ -189,5 +193,5 @@ describe("Auction", function() {
 
     });
 
-
+    
 });
