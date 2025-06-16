@@ -185,7 +185,88 @@ describe("AuctionOpt", function() {
                 .withArgs(index, priceUser, price - (await auction.getLot(index)).discountRate);
         });
 
+        it("should be reverted buy non-existent lot", async function(){
+            
+            const {user0, auction } = await loadFixture(deploy);
+            
+            const startPrice = 1000000000n;
+            const duration = 1n*24n*60n*60n;
+            const item = "example";
+            const discountRate = 10n;
 
+            for(let i = 0n; i != 4n; ++i) {
+                
+                const tx = await auction.createAuction(startPrice + i, discountRate, duration, item + i);
+                tx.wait(1);
+            }
+
+            await expect(auction.buy(5, {value: startPrice})).revertedWithCustomError(auction, "NonExistentLot").withArgs(5);
+        });
+
+                it("should revert buy lot from stopped auction", async function(){ //проверка возврата функции buy при повторной покупке
+            const {user0, user1, user2, auction } = await loadFixture(deploy);
+            
+            //сначала выставим на продажу несколько лотов
+            const startPrice = 1000000000n;
+            const duration = 1n*24n*60n*60n;
+            const item = "example";
+            const discountRate = 10n;
+
+            for(let i = 0n; i != 4n; ++i) { //сначала создадим 4 лота
+                
+                const tx = await auction.connect(user1).createAuction(startPrice + i, discountRate, duration, item + i);
+                tx.wait(1);                
+            }
+            
+            const now = (await ethers.provider.getBlock("latest"))!.timestamp;
+            const timeToAdd = 12 * 60 * 60; // 12 часов
+            const futureTime = now + timeToAdd;
+
+            await network.provider.send("evm_setNextBlockTimestamp", [futureTime]);
+            await network.provider.send("evm_mine");
+
+            //теперь сначала делаем покупку, чтобы перевести аукцион в стоп
+            const index = 3n; //будем дважды покупать третий лот
+            const price = await auction.getPrice(index);  //получаем цену лота                     
+;
+            const tx  = await auction.connect(user2).buy(index, {value: price});
+            tx.wait(1);
+            
+            await expect(auction.connect(user2).buy(index, {value: price}))
+                .revertedWithCustomError(auction, "RequestToStoppedAuction")
+                .withArgs(index);
+        });
+
+                it("should revert buy lot with expired time", async function(){ //проверка возврата функции buy при истечении срока
+            const {user0, user1, user2, auction } = await loadFixture(deploy);
+            
+            //сначала выставим на продажу несколько лотов
+            const startPrice = 1000000000n;
+            const duration = 1n*24n*60n*60n;
+            const item = "example";
+            const discountRate = 10n;
+
+            for(let i = 0n; i != 4n; ++i) { //сначала создадим 4 лота
+                
+                const tx = await auction.connect(user1).createAuction(startPrice + i, discountRate, duration, item + i);
+                tx.wait(1);                
+            }
+            
+            const now = (await ethers.provider.getBlock("latest"))!.timestamp;
+            const timeToAdd = 48 * 60 * 60; // 48 часов
+            const futureTime = now + timeToAdd;
+
+            await network.provider.send("evm_setNextBlockTimestamp", [futureTime]);
+            await network.provider.send("evm_mine");
+
+            //теперь сначала делаем покупку, чтобы перевести аукцион в стоп
+            const index = 3n; //будем покупать третий лот
+            const price = await auction.getPrice(index);  //получаем цену лота            
+            
+            await expect(auction.connect(user2).buy(index, {value: price}))
+                .revertedWithCustomError(auction, "ExpiredTime")
+                .withArgs(index);
+        });
     });
 
     describe("withdraw funcitons", function() {        
