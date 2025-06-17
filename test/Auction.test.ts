@@ -321,11 +321,10 @@ describe("Auction", function() {
             return badReceiver;
         }
 
-        it("should buy lot and save refunds in mapping", async function(){ //проверка неуспешного рефанда и ручного вывода сдачи
+        it("should buy lot and manual refund withdraw", async function(){ //проверка неуспешного рефанда и ручного вывода сдачи
             const {user0, user1, user2, auction } = await loadFixture(deploy);
-            const badReceiver = await getBadReciever(); //наш "покупатель"
-           
-            const recieverBalance = await ethers.provider.getBalance(badReceiver);        
+            const badReceiver = await getBadReciever(); //наш "покупатель" - контракт, который отклоняет приходы в receive         
+            
             
             const startPrice = 1000000000n;
             const duration = 1n*24n*60n*60n;
@@ -345,19 +344,26 @@ describe("Auction", function() {
             await network.provider.send("evm_setNextBlockTimestamp", [futureTime]);
             await network.provider.send("evm_mine");
 
-            //теперь попробуем купить
+            //теперь покупаем
             const index = 3n; //попробуем купить третий лот
             const price = await auction.getPrice(index);  //получаем цену лота                     
             
-            //TO - транзу сделать
-            
-            const lot3 = await auction.getLot(index); //получаем данные купленного лота            
+            const txBuy = await badReceiver.callBuy(auction, price, index);
+            txBuy.wait(1);
+            const lot3 = await auction.getLot(index); //получаем данные купленного лота                         
             const finalPrice = lot3.finalPrice;
-
             const refund = price - finalPrice;
+            const fee = finalPrice * 10n / 100n;
 
-            console.log(refund);           
-            
+            //проверяем, что сдача не вернулась и сгенерировано соответствующее событие
+            expect(txBuy).changeEtherBalance(auction, (fee + refund)); //проверяем, что баланс аукциона увеличился на сумму комиссии и сдачи
+            expect(txBuy).changeEtherBalance(badReceiver, - price); //проверяем, что покупатель не получил сдачу
+            expect(txBuy).to.emit(auction, "MoneyTrasferFailed").withArgs(index, badReceiver, refund, "refund failed");            
+
+            //пробуем вывести средства вручную
+            await badReceiver.setRevertFlag(true);            
+            const txWithdraw = await badReceiver.callWithdrawRefund(auction);
+            expect(txWithdraw).changeEtherBalance(badReceiver, refund);
             
         });
     

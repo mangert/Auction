@@ -175,8 +175,8 @@ contract AuctionOpt {
         uint64 amount = currentPrice - ((currentPrice * fee) / 100); //считаем сумму для продавца (комиссию оставляем себе)
         (bool success, ) = lot.seller.call{value: amount}(""); //отправляем деньги продавцу
         if(!success){ //если перевод провалился, записываем "долг" перед пользователем
-            pendingWithdrawals[lot.seller]+=refund; 
-            emit MoneyTrasferFailed(index, lot.seller, refund, "incom transfer failed");
+            pendingWithdrawals[lot.seller]+=amount; 
+            emit MoneyTrasferFailed(index, lot.seller, amount, "incom transfer failed");
         }
 
         auctions[index] = lot; //копируем модифицированные данные лота обратно в storage - в оптимизированном варианте этой строки не будет 
