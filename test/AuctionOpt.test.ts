@@ -44,7 +44,7 @@ describe("AuctionOpt", function() {
             const tx = await auction.createAuction(startPrice, discountRate, duration, item);
             tx.wait(1);
             
-            const countAucitons = await auction.getCount();
+            const countAucitons = await auction.counter();            
             expect(countAucitons).eq(1);
            
             const createdAuction = await auction.auctions(0);
@@ -269,7 +269,181 @@ describe("AuctionOpt", function() {
         });
     });
 
-    describe("withdraw funcitons", function() {        
+    describe("withdraw funcitons", function() {
+        async function getBadReciever() { //вспомогательная функция создания "сбоящего" получателя средств
+
+            const badReceiverFactory = await ethers.getContractFactory("BadReceiver");
+            const badReceiver = await badReceiverFactory.deploy();            
+            await badReceiver.waitForDeployment();
+
+            const [sender] = await ethers.getSigners();            
+
+            //пускай на контракте будут средства - 1 эфир
+            const tx = await badReceiver.connect(sender).getTransfer({value: ethers.parseEther("1.0")})                         
+
+            return badReceiver;
+        }
+
+        it("should buy lot and manual refund withdraw", async function(){ //проверка неуспешного рефанда и ручного вывода сдачи
+            const {user0, user1, user2, auction } = await loadFixture(deploy);
+            const badReceiver = await getBadReciever(); //наш "покупатель" - контракт, который отклоняет приходы в receive         
+            
+            
+            const startPrice = 1000000000n;
+            const duration = 1n*24n*60n*60n;
+            const item = "example";
+            const discountRate = 10n;
+
+            for(let i = 0n; i != 4n; ++i) { //сначала создадим 4 лота
+                
+                const tx = await auction.connect(user1).createAuction(startPrice + i, discountRate, duration, item + i);
+                tx.wait(1);                
+            }
+            
+            const now = (await ethers.provider.getBlock("latest"))!.timestamp;
+            const timeToAdd = 12 * 60 * 60; // 12 часов
+            const futureTime = now + timeToAdd;
+
+            await network.provider.send("evm_setNextBlockTimestamp", [futureTime]);
+            await network.provider.send("evm_mine");
+
+            //теперь покупаем
+            const index = 3n; //попробуем купить третий лот
+            const price = await auction.getPrice(index);  //получаем цену лота                     
+            
+            const txBuy = await badReceiver.callBuy(auction, price, index);
+            txBuy.wait(1);
+            const lot3 = await auction.getLot(index); //получаем данные купленного лота                         
+            const finalPrice = lot3.finalPrice;
+            const refund = price - finalPrice;
+            const fee = finalPrice * 10n / 100n;
+
+            //проверяем, что сдача не вернулась и сгенерировано соответствующее событие
+            expect(txBuy).changeEtherBalance(auction, (fee + refund)); //проверяем, что баланс аукциона увеличился на сумму комиссии и сдачи
+            expect(txBuy).changeEtherBalance(badReceiver, - price); //проверяем, что покупатель не получил сдачу
+            expect(txBuy).to.emit(auction, "MoneyTrasferFailed").withArgs(index, badReceiver, refund, "refund failed");            
+
+            //пробуем вывести средства вручную
+            await badReceiver.setRevertFlag(true);            
+            const txWithdraw = await badReceiver.callWithdrawRefund(auction);
+            expect(txWithdraw).changeEtherBalance(badReceiver, refund);
+            
+        });
+
+        it("should withdraw incomes", async function(){ //проверка вывода прибыли
+            const {user0, user1, user2, auction } = await loadFixture(deploy);           
+            
+            
+            const startPrice = 1000000000n;
+            const duration = 1n*24n*60n*60n;
+            const item = "example";
+            const discountRate = 10n;
+
+            for(let i = 0n; i != 4n; ++i) { //сначала создадим 4 лота
+                
+                const tx = await auction.connect(user1).createAuction(startPrice + i, discountRate, duration, item + i);
+                tx.wait(1);                
+            }
+            
+            const now = (await ethers.provider.getBlock("latest"))!.timestamp;
+            const timeToAdd = 12 * 60 * 60; // 12 часов
+            const futureTime = now + timeToAdd;
+
+            await network.provider.send("evm_setNextBlockTimestamp", [futureTime]);
+            await network.provider.send("evm_mine");
+
+            //теперь покупаем
+            const index = 3n; //попробуем купить третий лот
+            const price = await auction.getPrice(index);  //получаем цену лота                     
+            
+            const txBuy = await auction.buy(index, {value: price});
+            txBuy.wait(1);
+            const lot3 = await auction.getLot(index); //получаем данные купленного лота                         
+            const finalPrice = lot3.finalPrice;            
+            const fee = finalPrice * 10n / 100n; //комиссия
+
+            const txWithdraw = await auction.connect(user0).withdrawIncomes(fee);
+            await txWithdraw.wait(1);
+            
+            expect(txWithdraw).changeEtherBalance(user0, fee);
+            
+        });
+
+        it("should revert withdraw incomes not an owner", async function(){ //проверка вывода прибыли
+            const {user0, user1, user2, auction } = await loadFixture(deploy);           
+            
+            
+            const startPrice = 1000000000n;
+            const duration = 1n*24n*60n*60n;
+            const item = "example";
+            const discountRate = 10n;
+
+            for(let i = 0n; i != 4n; ++i) { //сначала создадим 4 лота
+                
+                const tx = await auction.connect(user1).createAuction(startPrice + i, discountRate, duration, item + i);
+                tx.wait(1);                
+            }
+            
+            const now = (await ethers.provider.getBlock("latest"))!.timestamp;
+            const timeToAdd = 12 * 60 * 60; // 12 часов
+            const futureTime = now + timeToAdd;
+
+            await network.provider.send("evm_setNextBlockTimestamp", [futureTime]);
+            await network.provider.send("evm_mine");
+
+            //теперь покупаем
+            const index = 3n; //попробуем купить третий лот
+            const price = await auction.getPrice(index);  //получаем цену лота                     
+            
+            const txBuy = await auction.buy(index, {value: price});
+            txBuy.wait(1);
+            const lot3 = await auction.getLot(index); //получаем данные купленного лота                         
+            const finalPrice = lot3.finalPrice;            
+            const fee = finalPrice * 10n / 100n; //комиссия                       
+            
+            //вызываем вывод от имени невладельца и ждем отката
+            await expect(auction.connect(user1).withdrawIncomes(fee))
+                .revertedWithCustomError(auction, "NotAnOwner").withArgs(user1);
+            
+        });
+
+        it("should revert withdraw incomes with not enough funds", async function(){ //проверка вывода прибыли
+            const {user0, user1, user2, auction } = await loadFixture(deploy);           
+            
+            
+            const startPrice = 1000000000n;
+            const duration = 1n*24n*60n*60n;
+            const item = "example";
+            const discountRate = 10n;
+
+            for(let i = 0n; i != 4n; ++i) { //сначала создадим 4 лота
+                
+                const tx = await auction.connect(user1).createAuction(startPrice + i, discountRate, duration, item + i);
+                tx.wait(1);                
+            }
+            
+            const now = (await ethers.provider.getBlock("latest"))!.timestamp;
+            const timeToAdd = 12 * 60 * 60; // 12 часов
+            const futureTime = now + timeToAdd;
+
+            await network.provider.send("evm_setNextBlockTimestamp", [futureTime]);
+            await network.provider.send("evm_mine");
+
+            //теперь покупаем
+            const index = 3n; //попробуем купить третий лот
+            const price = await auction.getPrice(index);  //получаем цену лота                     
+            
+            const txBuy = await auction.buy(index, {value: price});
+            txBuy.wait(1);
+            const lot3 = await auction.getLot(index); //получаем данные купленного лота                         
+            const finalPrice = lot3.finalPrice;            
+            const fee = finalPrice * 10n / 100n; //комиссия                       
+            
+            //вызываем вывод на большую, чем полученные комиссии сумму и ждем отката
+            await expect(auction.connect(user0).withdrawIncomes(fee * 2n))
+                .revertedWithCustomError(auction, "NotEnoughFunds").withArgs(fee * 2n);
+            
+        });        
     
 
     });

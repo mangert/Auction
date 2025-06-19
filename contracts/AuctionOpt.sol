@@ -73,13 +73,11 @@ contract AuctionOpt {
     /**
      * @notice перечисление средств завершщилось неудачей
      */
-    event MoneyTrasferFailed(uint256 indexed index, address indexed recipient, uint256 amount, bytes reason);    
-
-    
+    event MoneyTrasferFailed(uint256 indexed index, address indexed recipient, uint256 amount, bytes reason);        
     
     uint32 private constant DURATION = 2 days; //значение длительности "по умолчанию"
     uint32 private immutable fee = 10; //комиссия организатора
-    address private owner; //владиелец контракта - организатора      
+    address private owner; //владелец контракта - организатора      
     
     struct  Lot { //описание структуры лота
         address payable seller;  //продавец      
@@ -92,7 +90,8 @@ contract AuctionOpt {
         bool stopped; //статус аукциона       
     }
     
-    Lot[] public auctions; //хранилице лотов
+    uint256 public counter; // счетчик лотов
+    mapping (uint256 index => Lot item) public auctions; //хранилице лотов
     
     mapping (address => uint256) pendingWithdrawals; //хранилище средств, которые не были вовремя перечислены получателям в случае сбоев
     
@@ -123,9 +122,9 @@ contract AuctionOpt {
             description: _description,
             stopped: false
         });
-
-        auctions.push(newLot);                
-        emit NewAuctionCreated(auctions.length - 1, _description, _startPrice, duration);        
+        auctions[counter] = newLot;                
+        emit NewAuctionCreated(counter, _description, _startPrice, duration);        
+        ++counter;
     }
 
     /**
@@ -148,7 +147,7 @@ contract AuctionOpt {
      */
     function buy(uint256 index) external payable {
         
-        require(index <= getCount(), NonExistentLot(index)); //проверка на наличие лота
+        require(index <= counter, NonExistentLot(index)); //проверка на наличие лота
         
         Lot memory lot = auctions[index]; //здесь делаем копию из storage, в оптимизированном варианте будет ссылка
         
@@ -204,33 +203,19 @@ contract AuctionOpt {
      */
     function withdrawIncomes(uint64 amount) external {
         require(msg.sender == owner, NotAnOwner(msg.sender)); //проверяем, что выводит владелец контракта
-        require(amount <= getBalance(), NotEnoughFunds(amount)); //проверяем, что нужная сумма есть на балансе
+        require(amount <= address(this).balance, NotEnoughFunds(amount)); //проверяем, что нужная сумма есть на балансе
         
         (bool success, ) = msg.sender.call{value: amount}("");
         require(success, TransferFailed(msg.sender, amount));        
         
     }
-    //геттеры
-    /**
-     * @notice функция возращает баланс контракта
-     */
-    function getBalance() public view returns(uint256 balance) {
-        balance = address(this).balance;        
-    }    
-
-    /**
-     * @notice функция возращает количество всех аукционов
-     */    
-    function getCount() public view returns(uint256) {
-        return auctions.length;
-    }
-
+    //геттеры    
     /**
      * @notice функция возращает данные по заданному лоту
      * @param index - идентифиактор лота
      */
     function getLot(uint256 index) external view returns(Lot memory) {
-        require(index <= getCount(), NonExistentLot(index)); 
+        require(index <= counter, NonExistentLot(index)); 
         return auctions[index];
     }        
 }

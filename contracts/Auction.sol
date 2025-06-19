@@ -51,7 +51,7 @@ contract Auction {
       * @param _duration - длительность аукциона по лоту
       * @param _description - описание лота
       */
-    function createAuction(uint32 _startPrice, uint64 _discountRate, uint32 _duration, string calldata _description) external
+    function createAuction(uint32 _startPrice, uint64 _discountRate, uint32 _duration, string memory _description) external
     {
         uint32 duration = _duration == 0 ? DURATION : _duration; //если длительность не задана, берем параметр по умолчанию       
         

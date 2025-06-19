@@ -30,6 +30,17 @@ contract BadReceiver {
     }
 
     /**
+     * @notice функция для вывода дохода владельцем
+     * @param auction - адрес контракта
+     * @param amount - сумма вывода
+     */
+    function callWithdrawIncome(address auction, uint64 amount) external payable {
+        
+        (bool success, ) = auction.call(abi.encodeCall(Auction.withdrawIncomes, (amount)));
+        require(success, "Withdraw error");        
+    }
+
+    /**
      * @notice функция для вызова покупки в контракте-аукционе
      * @param auction - адрес аукциона
      * @param price - цена, за которую покупаем

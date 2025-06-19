@@ -1,8 +1,12 @@
 import fs from "fs";
 import path from "path";
-import hre, { ethers } from "hardhat";
-
+import hre, { ethers, run } from "hardhat";
+//скрипт для деплоя и верификации
 async function main() {
+    
+    const contractName = process.env.CONTRACT || "Auction";
+    
+    //деплой
     console.log("DEPLOYING...");
     const [deployer, owner] = await ethers.getSigners();
 
@@ -10,17 +14,26 @@ async function main() {
     const auction = await auction_Factory.deploy();    
     await auction.waitForDeployment(); 
     
-    const address = await auction.getAddress();
-    console.log("Deployed auction at:", address);
-        
-        
-    const configPath = path.resolve(__dirname, "./config.ts");
-    let configContent = fs.readFileSync(configPath, "utf8");
+    const contractAddress = await auction.getAddress();
+    console.log("Deployed auction at:", contractAddress);
+   
+    //верификация
+    console.log("VERIFY...");
+    const constructorArgs: any[] = []; // если без аргументов
     
-    const newContent = configContent.replace(
-    /const auction_contractAddress = ".*?";/,
-    `const auction_contractAddress = "${address}";`
-      );
+    try {
+       await run("verify:verify", {
+         address: contractAddress,
+         constructorArguments: constructorArgs,
+       });
+       console.log("Verification successful!");
+     } catch (error: any) {
+       if (error.message.toLowerCase().includes("already verified")) {
+         console.log("Already verified");
+       } else {
+         console.error("Verification failed:", error);
+       }
+     }
 }
 
 main()
