@@ -10,12 +10,19 @@ async function main() {
     console.log("DEPLOYING...");
     const [deployer, owner] = await ethers.getSigners();
 
-    const auction_Factory = await ethers.getContractFactory("Auction");
+    const auction_Factory = await ethers.getContractFactory(contractName);
     const auction = await auction_Factory.deploy();    
     await auction.waitForDeployment(); 
-    
+
     const contractAddress = await auction.getAddress();
     console.log("Deployed auction at:", contractAddress);
+    
+    //ждем подтверждения, чтобы верификация не отвалилась
+    const tx = auction.deploymentTransaction();
+    if (tx) {
+        await tx.wait(5); // ← ждем 5 подтверждений
+    }    
+    
    
     //верификация
     console.log("VERIFY...");
